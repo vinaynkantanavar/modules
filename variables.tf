@@ -1,40 +1,30 @@
-variable "api_name" {
-  description = "The name of the API Gateway"
+variable "region" {
+  description = "specify region"
+  default = "us-west-1"
+  type = string
+}
+variable "ipv4" {
+  description = "The CIDR block for the VPC"
   type        = string
 }
 
-variable "api_description" {
-  description = "The description of the API Gateway"
-  type        = string
-  default     = "API Gateway for decoupling"
-}
-
-# Lambda function ARN for the backend integration
-variable "lambda_function_arn" {
-  description = "The ARN of the Lambda function to integrate with API Gateway"
+variable "public_subnet_cidr" {
+  description = "The CIDR block for the public subnet"
   type        = string
 }
 
-# Lambda function name (for permissions)
-variable "lambda_function_name" {
-  description = "The name of the Lambda function"
+variable "private_subnet_cidr" {
+  description = "The CIDR block for the private subnet"
   type        = string
 }
 
-# List of stage names (e.g., dev, staging, prod)
-variable "stage_names" {
-  description = "The list of stage names for API Gateway"
-  type        = list(string)
-}
-
-variable "method" {
-  description = "This specifies the rest api http method"
+variable "availability_zone" {
+  description = "The availability zone for the subnets"
   type        = string
-  default =     "POST"
 }
 
-variable "auth" {
-  description = "authorization type"
-  type   = string
-  default = "AWS_IAM"
+variable "name" {
+  description = "The name prefix for all VPC components"
+  type        = string
+  default = "sf-arc"
 }
