@@ -1,51 +1,100 @@
-resource "aws_api_gateway_rest_api" "this" {
-  name        = var.api_name
-  description = var.api_description
-  body        = file(var.openapi_file) # If you want to pass an OpenAPI file directly
-}
+resource "aws_vpc" "this" {
+  cidr_block           = var.ipv4
+  enable_dns_support   = true
+  enable_dns_hostnames = true
 
-# Create a Lambda integration
-resource "aws_api_gateway_method" "proxy_method" {
-  rest_api_id   = aws_api_gateway_rest_api.this.id
-  resource_id   = aws_api_gateway_rest_api.this.root_resource_id
-  http_method   = var.method
-  authorization = var.auth
-}
-
-resource "aws_api_gateway_integration" "lambda_integration" {
-  rest_api_id = aws_api_gateway_rest_api.this.id
-  resource_id = aws_api_gateway_rest_api.this.root_resource_id
-  http_method = aws_api_gateway_method.proxy_method.http_method
-  integration_http_method = var.method
-  type        = "AWS_PROXY"
-  uri         = var.lambda_function_arn
-}
-
-# Create a deployment for the API Gateway
-resource "aws_api_gateway_deployment" "api_deployment" {
-  rest_api_id = aws_api_gateway_rest_api.this.id
-  depends_on  = [aws_api_gateway_integration.lambda_integration]
-}
-
-# Dynamically create multiple stages
-resource "aws_api_gateway_stage" "api_stages" {
-  for_each    = toset(var.stage_names)
-  
-  rest_api_id = aws_api_gateway_rest_api.this.id
-  deployment_id = aws_api_gateway_deployment.api_deployment.id
-  stage_name  = each.key
-
-  description = "API stage for ${each.key} environment"
-  variables = {
-    "stage" = each.key
+  tags = {
+    Name = var.name
   }
 }
 
-# Create permissions for Lambda to be invoked by API Gateway
-resource "aws_lambda_permission" "api_gateway_permission" {
-  statement_id  = "AllowExecutionFromAPIGateway"
-  action        = "lambda:InvokeFunction"
-  function_name = var.lambda_function_name
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = aws_api_gateway_rest_api.this.execution_arn
+resource "aws_subnet" "public" {
+  vpc_id            = aws_vpc.this.id
+  cidr_block        = var.public_subnet_cidr
+  availability_zone = var.availability_zone
+  map_public_ip_on_launch = true  # Ensure that instances in this subnet get public IPs
+
+  tags = {
+    Name = "${var.name}-public"
+  }
+}
+
+resource "aws_subnet" "private" {
+  vpc_id            = aws_vpc.this.id
+  cidr_block        = var.private_subnet_cidr
+  availability_zone = var.availability_zone
+
+  tags = {
+    Name = "${var.name}-private"
+  }
+}
+
+# Internet Gateway for the public subnet
+resource "aws_internet_gateway" "igw" {
+  vpc_id = aws_vpc.this.id
+
+  tags = {
+    Name = "${var.name}-igw"
+  }
+}
+
+# Public Route Table to allow traffic to the internet through the IGW
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.this.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.igw.id
+  }
+
+  tags = {
+    Name = "${var.name}-public-rt"
+  }
+}
+
+# Associate public subnet with the public route table
+resource "aws_route_table_association" "public_assoc" {
+  subnet_id      = aws_subnet.public.id
+  route_table_id = aws_route_table.public.id
+}
+
+# Elastic IP for NAT Gateway
+resource "aws_eip" "nat_eip" {
+
+
+  tags = {
+    Name = "${var.name}-nat-eip"
+  }
+}
+
+# NAT Gateway for the private subnet
+resource "aws_nat_gateway" "nat" {
+  allocation_id = aws_eip.nat_eip.id
+  subnet_id     = aws_subnet.public.id  # NAT Gateway must be in the public subnet
+
+  tags = {
+    Name = "${var.name}-nat"
+  }
+}
+
+# Private Route Table for private subnets, routing through NAT Gateway
+resource "aws_route_table" "private" {
+  vpc_id = aws_vpc.this.id
+
+  tags = {
+    Name = "${var.name}-private-rt"
+  }
+}
+
+# Add route to the private route table to route through the NAT Gateway
+resource "aws_route" "private_route" {
+  route_table_id         = aws_route_table.private.id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = aws_nat_gateway.nat.id
+}
+
+# Associate private subnet with the private route table
+resource "aws_route_table_association" "private_assoc" {
+  subnet_id      = aws_subnet.private.id
+  route_table_id = aws_route_table.private.id
 }
